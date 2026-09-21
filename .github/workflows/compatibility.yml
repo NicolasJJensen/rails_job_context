@@ -1,0 +1,69 @@
+name: Compatibility
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.name }} / Ruby ${{ matrix.ruby }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "Rails 7.2 / GoodJob 3.99 (v3)"
+            gemfile: "rails_7_2"
+            ruby: "3.1"
+          - name: "Rails 8.0 / GoodJob 3.99 (v3)"
+            gemfile: "rails_8_0"
+            ruby: "3.2"
+          - name: "Rails 8.1 / GoodJob 3.99 (v3)"
+            gemfile: "rails_8_1"
+            ruby: "3.3"
+          - name: "Rails 8.0 / GoodJob 4.0.0 (v4_0)"
+            gemfile: "good_job_4_0"
+            ruby: "3.3"
+          - name: "Rails 8.0 / GoodJob 4.13.0 (v4_0)"
+            gemfile: "good_job_4_13_0"
+            ruby: "3.3"
+          - name: "Rails 8.0 / GoodJob 4.13.1 (v4_13)"
+            gemfile: "good_job_4_13_1"
+            ruby: "3.3"
+          - name: "Rails 8.0 / GoodJob 4.16.0 (v4_13)"
+            gemfile: "good_job_4_16"
+            ruby: "3.3"
+          - name: "Rails 8.0 / GoodJob 4.17.0 (v4_17)"
+            gemfile: "good_job_4_17"
+            ruby: "3.3"
+          - name: "Rails 8.0 / GoodJob 4.18+ (v4_18)"
+            gemfile: "good_job_4_18"
+            ruby: "3.3"
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      BUNDLE_GEMFILE: gemfiles/${{ matrix.gemfile }}.gemfile
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: false
+      - name: Resolve and install
+        run: |
+          bundle lock --update
+          bundle install --jobs 4 --retry 3
+      - run: bundle exec rspec

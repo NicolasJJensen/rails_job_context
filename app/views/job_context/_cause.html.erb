@@ -1,0 +1,6 @@
+<% cause = JobContext::Dashboard.cause_label(current_attributes, cause_id, cause_jobs: cause_jobs || {}) %>
+<% if cause[:type] == :link %>
+  <%= tag.h5 tag.code(link_to(cause[:text], job_path(cause[:job]), class: "text-reset text-decoration-none")), class: "text-reset mb-0" %>
+<% else %>
+  <%= tag.span cause[:text], class: "badge bg-secondary bg-opacity-50 rounded-pill" %>
+<% end %>

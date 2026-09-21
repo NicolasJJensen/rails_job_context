@@ -1,0 +1,21 @@
+<% context = JobContext::Dashboard.context_for(job) %>
+<% attributes = context['attributes'] %>
+<% stack = context['correlation_stack'] %>
+<% direct_cause = stack[-2] %>
+<% root_cause = direct_cause.nil? ? nil : stack[0] %>
+<% cause_ids = [direct_cause, root_cause].compact.uniq %>
+<% cause_jobs = JobContext::Dashboard.ancestor_jobs(cause_ids) %>
+<div class="d-flex gap-4">
+  <div class="d-flex flex-column">
+    <div class="small text-muted">Direct Cause</div>
+    <div class="my-2">
+      <%= render 'job_context/cause', current_attributes: attributes, cause_id: direct_cause, cause_jobs: cause_jobs %>
+    </div>
+  </div>
+  <div class="d-flex flex-column">
+    <div class="small text-muted">Root Cause</div>
+    <div class="my-2">
+      <%= render 'job_context/cause', current_attributes: attributes, cause_id: root_cause, cause_jobs: cause_jobs %>
+    </div>
+  </div>
+</div>
