@@ -11,6 +11,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: "Core / Rails 7.2"
+            gemfile: "core_rails_7_2"
+            ruby: "3.1"
+            specs: "gems/rails_job_context/spec"
+          - name: "Core / Rails 8.0"
+            gemfile: "core_rails_8_0"
+            ruby: "3.2"
+            specs: "gems/rails_job_context/spec"
+          - name: "Core / Rails 8.1"
+            gemfile: "core_rails_8_1"
+            ruby: "3.3"
+            specs: "gems/rails_job_context/spec"
           - name: "Rails 7.2 / GoodJob 3.99 (v3)"
             gemfile: "rails_7_2"
             ruby: "3.1"
@@ -66,4 +78,5 @@ jobs:
         run: |
           bundle lock --update
           bundle install --jobs 4 --retry 3
-      - run: bundle exec rspec
+      - run: bundle exec rspec ${{ matrix.specs }}
+      - run: bundle exec rake build

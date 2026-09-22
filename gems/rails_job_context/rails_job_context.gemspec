@@ -7,12 +7,9 @@ Gem::Specification.new do |spec|
   spec.version = JobContext::VERSION
   spec.authors = ['Nicolas J Jensen']
   spec.email = ['nicolasjensen9@gmail.com']
-  spec.summary = 'Active Job context propagation and GoodJob causation views'
-  spec.description = 'Copies selected CurrentAttributes into a namespaced field of the Active Job payload ' \
-                     'and restores them around perform. The snapshot is taken before Rails can defer the ' \
-                     'enqueue to transaction commit, so a job sees the values its caller held. Every job ' \
-                     'also carries the IDs of the jobs that caused it. An optional GoodJob dashboard ' \
-                     'integration shows the direct and root cause of each job.'
+  spec.summary = 'Named CurrentAttributes snapshots and ancestry for Active Job'
+  spec.description = 'Carries selected attributes from named CurrentAttributes classes through Active Job. ' \
+                     'Restores each context during execution and tracks one job ancestry stack.'
   spec.homepage = 'https://github.com/NicolasJJensen/rails_job_context'
   spec.license = 'MIT'
   spec.required_ruby_version = '>= 3.1'
@@ -22,8 +19,7 @@ Gem::Specification.new do |spec|
     'bug_tracker_uri' => "#{spec.homepage}/issues"
   }
   spec.files = Dir.chdir(__dir__) do
-    Dir['lib/**/*.rb', 'app/views/**/*', 'integrations/**/*',
-        'README.md', 'CHANGELOG.md', 'LICENSE.txt', 'LICENSE.good_job.txt']
+    Dir['lib/**/*.rb', 'README.md', 'CHANGELOG.md', 'LICENSE.txt']
       .select { |path| File.file?(path) }
   end
   spec.require_paths = ['lib']

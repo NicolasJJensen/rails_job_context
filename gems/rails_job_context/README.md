@@ -161,7 +161,7 @@ end
 
 The companion depends on the core and loads its Rails engine during boot. Details
 are enabled by default; replacing the jobs table is opt-in. See the
-[companion README](gems/rails_job_context-good_job/README.md) for template
+[companion README](https://github.com/NicolasJJensen/rails_job_context/tree/main/gems/rails_job_context-good_job) for template
 compatibility and application overrides.
 
 ## Development

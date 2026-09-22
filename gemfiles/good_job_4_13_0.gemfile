@@ -1,5 +1,6 @@
 source 'https://rubygems.org'
-gemspec path: '..'
+gemspec path: '../gems/rails_job_context'
+gemspec path: '../gems/rails_job_context-good_job'
 gem 'rake', '~> 13.0'
 gem 'rspec-core', '~> 3.13'
 gem 'rspec-expectations', '~> 3.13'
