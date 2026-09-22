@@ -1,13 +1,13 @@
 require 'spec_helper'
 require 'open3'
-require 'rails_job_context/good_job'
+require 'rails_job_context-good_job'
 
 RSpec.describe 'GoodJob dashboard in a booted Rails application' do
   BOOT_SCRIPT = <<~'RUBY'.freeze
     require 'rails'
     require 'action_controller/railtie'
     require 'active_job/railtie'
-    require 'rails_job_context/good_job'
+    require 'rails_job_context-good_job'
     require 'tmpdir'
     require 'fileutils'
     require 'json'
@@ -31,8 +31,8 @@ RSpec.describe 'GoodJob dashboard in a booted Rails application' do
         config.hosts.clear
         config.root = root
         initializer 'test.context_options' do
-          JobContext.config.good_job.details = ENV['DETAILS'] == 'true'
-          JobContext.config.good_job.table = ENV['TABLE'] == 'true'
+          JobContext::Dashboard.config.details = ENV['DETAILS'] == 'true'
+          JobContext::Dashboard.config.table = ENV['TABLE'] == 'true'
         end
       end
       app.initialize!
@@ -127,7 +127,7 @@ RSpec.describe 'GoodJob dashboard in a booted Rails application' do
 
       expect(status.success?).to be(false)
       expect(errors).to include('JobContext::Error')
-      expect(errors).to include('config.good_job.table')
+      expect(errors).to include('Dashboard.config.table')
       expect(errors).to include(version)
       expect(errors).to include('>= 3.99, < 4 (v3)', '>= 4.0, < 4.13.1 (v4_0)', '>= 4.13.1, < 4.17 (v4_13)',
                                 '>= 4.17, < 4.18 (v4_17)', '>= 4.18, < 5 (v4_18)')

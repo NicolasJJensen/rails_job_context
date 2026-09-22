@@ -3,9 +3,9 @@ module JobContext
     extend ActiveSupport::Concern
     KEY = 'job_context'.freeze
 
-    # Active Job 8.1 split raw_enqueue in two: raw_enqueue now runs the enqueue
-    # callbacks around a new private _raw_enqueue, and the transaction deferral
-    # hook wraps both. Earlier versions ran the callbacks before raw_enqueue.
+    # Active Job 8.1 split raw_enqueue in two. raw_enqueue now runs enqueue
+    # callbacks around a new private _raw_enqueue. Earlier versions ran the
+    # callbacks before raw_enqueue.
     module SplitEnqueue
       private
 
@@ -26,25 +26,32 @@ module JobContext
 
     def capture_job_context!
       return @serialized_job_context if @serialized_job_context
-
       config = JobContext.config
-      current = config.current_class
-      values = config.selected_names(current).to_h do |name|
-        value = current.public_send(name)
-        begin
-          ActiveJob::Arguments.serialize([value])
-        rescue ActiveJob::SerializationError => error
-          raise ActiveJob::SerializationError, "Current.#{name}: #{error.message}"
+      contexts = config.resolved_contexts
+      values = contexts.to_h do |name, context|
+        current = context.current_class
+        owner_attribute = name == config.correlation_context ? config.correlation_attribute : nil
+        selected = context.selected_names(current, correlation_attribute: owner_attribute)
+        attributes = selected.to_h do |attribute|
+          value = current.public_send(attribute)
+          begin
+            ActiveJob::Arguments.serialize([value])
+          rescue ActiveJob::SerializationError => error
+            raise ActiveJob::SerializationError, "Context #{name}.#{attribute}: #{error.message}"
+          end
+          [attribute, value]
         end
-        [name, value]
+        [name, ActiveJob::Arguments.serialize([attributes])]
       end
-      stack = Array(current.public_send(config.correlation_attribute)).dup
+      owner = contexts.fetch(config.correlation_context)
+      stack = Array(owner.current_class.public_send(config.correlation_attribute)).dup
       stack << job_id unless stack.last == job_id
       # Detach nested strings and collections from the request before a transaction
       # can defer the adapter call. Repeated serialization and retries reuse this snapshot.
       @serialized_job_context = {
         'version' => 1,
-        'attributes' => ActiveJob::Arguments.serialize([values]),
+        'contexts' => values,
+        'correlation_context' => config.correlation_context.to_s,
         'correlation_stack' => stack
       }.deep_dup
     end
@@ -58,8 +65,6 @@ module JobContext
       if payload
         raise ArgumentError, 'Unsupported job_context version' unless payload['version'] == 1
         @serialized_job_context = payload.deep_dup
-      else
-        data = restore_legacy_context(data)
       end
       super(data)
     end
@@ -77,40 +82,35 @@ module JobContext
     end
 
     def deferred_enqueue?
-      self.class.respond_to?(:enqueue_after_transaction_commit) &&
-        self.class.enqueue_after_transaction_commit
+      self.class.respond_to?(:enqueue_after_transaction_commit) && self.class.enqueue_after_transaction_commit
     end
 
     def with_job_context
       context = capture_job_context!
       config = JobContext.config
-      current = config.current_class
-      values = ActiveJob::Arguments.deserialize(context.fetch('attributes')).first.symbolize_keys
-      values = values.slice(*config.selected_names(current))
-      values[config.correlation_attribute.to_sym] = context.fetch('correlation_stack').dup
-      current.set(**values) { yield }
+      configured = config.resolved_contexts
+      payload_contexts = context.fetch('contexts')
+      missing = configured.keys - payload_contexts.keys
+      raise ArgumentError, "Missing configured context payload: #{missing.join(', ')}" unless missing.empty?
+      if context.fetch('correlation_context').to_s != config.correlation_context.to_s
+        raise ArgumentError, 'Job context correlation owner does not match configuration'
+      end
+      values = configured.to_h do |name, setting|
+        raw = ActiveJob::Arguments.deserialize(payload_contexts.fetch(name)).first.symbolize_keys
+        owner_attribute = name == config.correlation_context ? config.correlation_attribute : nil
+        selected = setting.selected_names(setting.current_class, correlation_attribute: owner_attribute)
+        [name, raw.slice(*selected)]
+      end
+      values.fetch(config.correlation_context)[config.correlation_attribute.to_sym] = context.fetch('correlation_stack').dup
+      set_contexts(configured, values, 0) { yield }
     end
 
-    def restore_legacy_context(data)
-      options = data['arguments']&.last
-      return data unless options.is_a?(Hash) && options.key?('__metadata__')
-
-      metadata = ActiveJob::Arguments.deserialize([options['__metadata__']]).first
-      values = (metadata[:current_attributes] || metadata['current_attributes'] || {}).symbolize_keys
-      stack = values.delete(JobContext.config.correlation_attribute.to_sym) || []
-      @serialized_job_context = {
-        'version' => 1,
-        'attributes' => ActiveJob::Arguments.serialize([values]),
-        'correlation_stack' => stack
-      }.deep_dup
-      cleaned = data.deep_dup
-      options = cleaned['arguments'].last
-      options.delete('__metadata__')
-      %w[_aj_symbol_keys _aj_ruby2_keywords].each do |key|
-        options[key]&.delete('__metadata__')
+    def set_contexts(configured, values, index, &block)
+      return block.call if index == configured.length
+      name, setting = configured.to_a.fetch(index)
+      setting.current_class.set(**values.fetch(name)) do
+        set_contexts(configured, values, index + 1, &block)
       end
-      cleaned['arguments'].pop if (options.keys - %w[_aj_symbol_keys _aj_ruby2_keywords]).empty?
-      cleaned
     end
   end
 end

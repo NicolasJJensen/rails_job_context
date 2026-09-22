@@ -24,6 +24,10 @@ RSpec.describe "JobContext with Active Record transactions" do
     attribute :correlation_stack, default: []
   end
 
+  class TenantCurrent < ActiveSupport::CurrentAttributes
+    attribute :account
+  end
+
   # Rails 7.2 added AbstractAdapter and asks every adapter for
   # enqueue_after_transaction_commit?. Inherit it where it exists, and supply the
   # one required method where it does not.
@@ -109,9 +113,11 @@ RSpec.describe "JobContext with Active Record transactions" do
 
   before do
     JobContext.configure do |config|
-      config.current_attributes = TestCurrent
-      config.attributes = :all
-      config.except = []
+      config.contexts = {
+        request: { current_attributes: -> { TestCurrent }, attributes: :all, except: [] },
+        tenant: { current_attributes: -> { TenantCurrent }, attributes: :all, except: [] }
+      }
+      config.correlation_context = :request
     end
     TestCurrent.reset
     ReportJob.callback_arguments = []
@@ -192,17 +198,21 @@ RSpec.describe "JobContext with Active Record transactions" do
 
   it "captures mutable Current values before they are changed before commit" do
     ActiveRecord::Base.transaction do
+      TenantCurrent.account = { "name" => "before" }
       TestCurrent.set(user: "alice", label: +"before", metadata: { "team" => "blue" }) do
         ReportJob.perform_later(42)
         TestCurrent.label.replace("after")
         TestCurrent.metadata["team"] = "red"
+        TenantCurrent.account["name"] = "after"
       end
     end
 
     context = ActiveJob::Arguments.deserialize(
-      @adapter.enqueued.first.fetch("job_context").fetch("attributes")
+      @adapter.enqueued.first.fetch("job_context").fetch("contexts").fetch("request")
     ).first
     expect(context).to include(user: "alice", label: "before", metadata: { "team" => "blue" })
+    tenant = ActiveJob::Arguments.deserialize(@adapter.enqueued.first.fetch("job_context").fetch("contexts").fetch("tenant")).first
+    expect(tenant).to eq(account: { "name" => "before" })
   end
 
   it "round trips a persisted Current record through GlobalID" do
@@ -225,7 +235,7 @@ RSpec.describe "JobContext with Active Record transactions" do
   private
 
   def context_user(payload)
-    attributes = payload.fetch("job_context").fetch("attributes")
+    attributes = payload.fetch("job_context").fetch("contexts").fetch("request")
     ActiveJob::Arguments.deserialize(attributes).first.fetch(:user)
   end
 

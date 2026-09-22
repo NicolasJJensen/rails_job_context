@@ -28,6 +28,7 @@ RSpec.configure do |config|
   config.mock_with(:rspec) { |mocks| mocks.verify_partial_doubles = true }
   config.before do
     JobContext.instance_variable_set(:@config, JobContext::Configuration.new)
+    JobContext::Dashboard.instance_variable_set(:@config, nil) if defined?(JobContext::Dashboard)
     ActiveSupport::CurrentAttributes.clear_all
   end
   config.after { ActiveSupport::CurrentAttributes.clear_all }

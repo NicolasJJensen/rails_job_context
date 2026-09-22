@@ -1,6 +1,6 @@
 require 'spec_helper'
 require 'open3'
-require 'rails_job_context/good_job'
+require 'rails_job_context-good_job'
 
 RSpec.describe 'GoodJob jobs index rendered by a booted Rails application' do
   REQUEST_SCRIPT = <<~'RUBY'.freeze
@@ -8,7 +8,7 @@ RSpec.describe 'GoodJob jobs index rendered by a booted Rails application' do
     require 'active_record/railtie'
     require 'action_controller/railtie'
     require 'active_job/railtie'
-    require 'rails_job_context/good_job'
+    require 'rails_job_context-good_job'
     require 'erb'
     require 'fileutils'
     require 'json'
@@ -55,11 +55,13 @@ RSpec.describe 'GoodJob jobs index rendered by a booted Rails application' do
           config.good_job.preserve_job_records = true
           initializer 'test.context_options' do
             JobContext.configure do |context|
-              context.current_attributes = -> { Current }
-              context.attributes = %i[controller action]
+              context.contexts = {
+                request: { current_attributes: -> { Current }, attributes: %i[controller action] }
+              }
+              context.correlation_context = :request
             end
-            JobContext.config.good_job.details = true
-            JobContext.config.good_job.table = true
+            JobContext::Dashboard.config.details = true
+            JobContext::Dashboard.config.table = true
           end
         end
         app.initialize!

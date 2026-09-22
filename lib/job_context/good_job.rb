@@ -1,4 +1,4 @@
-require_relative '../rails_job_context'
+require 'rails_job_context'
 require 'rails'
 
 module JobContext
@@ -11,7 +11,7 @@ begin
   gem 'good_job', *JobContext::GOOD_JOB_REQUIREMENT
 rescue Gem::LoadError => error
   raise JobContext::Error,
-        "rails_job_context/good_job supports good_job #{JobContext::GOOD_JOB_REQUIREMENT.join(', ')}. " \
+        "rails_job_context-good_job supports good_job #{JobContext::GOOD_JOB_REQUIREMENT.join(', ')}. " \
         "Bundler resolved a version outside that range. Original error: #{error.message}"
 end
 
@@ -72,7 +72,7 @@ module JobContext
         # higher-priority overrides. to_prepare repeats this after Rails reloads.
         position = paths.index { |path| path.to_s == original } || paths.length
         selected = [common_view_path]
-        selected << details_view_path if JobContext.config.good_job.details
+        selected << details_view_path if config.details
         selected << table_view_path if table_selected?
         paths.insert(position, *selected)
         controller.view_paths = paths
@@ -94,7 +94,7 @@ module JobContext
       end
 
       def table_selected?
-        return false unless JobContext.config.good_job.table
+        return false unless config.table
         return true if table_supported?
 
         raise table_error
@@ -102,12 +102,13 @@ module JobContext
 
       def table_error
         JobContext::Error.new(
-          "JobContext.config.good_job.table replaces GoodJob's complete jobs-table template. " \
+          "JobContext::Dashboard.config.table replaces GoodJob's complete jobs-table template. " \
           "The gem ships one copy per GoodJob series, matching good_job #{SUPPORTED_TABLE_RANGE}. " \
           "This application loads good_job #{::GoodJob::VERSION}. " \
-          'Set config.good_job.table = false and keep config.good_job.details = true.'
+          'Set JobContext::Dashboard.config.table = false and keep details = true.'
         )
       end
+
     end
   end
 end

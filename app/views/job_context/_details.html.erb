@@ -1,5 +1,6 @@
 <% context = JobContext::Dashboard.context_for(job) %>
 <% attributes = context['attributes'] %>
+<% contexts = context['contexts'] %>
 <% stack = context['correlation_stack'] %>
 <% direct_cause = stack[-2] %>
 <% root_cause = direct_cause.nil? ? nil : stack[0] %>
@@ -19,3 +20,18 @@
     </div>
   </div>
 </div>
+<% if contexts.present? %>
+  <div class="mt-3">
+    <div class="small text-muted">Context attributes</div>
+    <table class="table table-sm mb-0">
+      <tbody>
+        <% contexts.each do |name, values| %>
+          <tr>
+            <th scope="row"><%= name %></th>
+            <td><%= tag.pre JSON.pretty_generate(values), class: "small mb-0" %></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </div>
+<% end %>

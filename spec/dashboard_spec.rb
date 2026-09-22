@@ -1,7 +1,7 @@
 require 'spec_helper'
 require 'action_view'
 require 'action_view/helpers'
-require 'rails_job_context/good_job'
+require 'rails_job_context-good_job'
 
 RSpec.describe 'GoodJob dashboard integration' do
   JobRecord = Struct.new(
@@ -18,6 +18,7 @@ RSpec.describe 'GoodJob dashboard integration' do
   end
 
   before do
+    JobContext::Dashboard.instance_variable_set(:@config, JobContext::Dashboard::Options.new(details: true, table: false))
     stub_const('GoodJob::Job', Class.new do
       def self.where(*) = []
       def self.find_by(*) = nil
@@ -56,12 +57,8 @@ RSpec.describe 'GoodJob dashboard integration' do
     view.render partial: name, locals: locals
   end
 
-  def job(id:, stack:, payload: nil, legacy: nil)
-    serialized = if payload
-      { 'job_context' => payload.merge('correlation_stack' => stack) }
-    else
-      { 'arguments' => [legacy || { '__metadata__' => { 'current_attributes' => { 'correlation_stack' => stack } } }] }
-    end
+  def job(id:, stack:, payload: nil)
+    serialized = { 'job_context' => (payload || { 'version' => 1, 'contexts' => {}, 'correlation_context' => 'request' }).merge('correlation_stack' => stack) }
     JobRecord.new(
       id: id, active_job_id: id, job_class: "Job#{id}", display_name: "Job#{id}",
       serialized_params: serialized, display_serialized_params: serialized,
@@ -70,19 +67,22 @@ RSpec.describe 'GoodJob dashboard integration' do
     )
   end
 
-  it 'renders new envelopes, legacy metadata, and unknown origins without deserializing' do
+  it 'renders context attributes without deserializing' do
     expect(ActiveJob::Arguments).not_to receive(:deserialize)
     expect(GlobalID::Locator).not_to receive(:locate)
     current = job(id: 'current', stack: ['current'], payload: {
       'version' => 1,
-      'attributes' => [{ 'controller' => 'orders', 'action' => 'create', 'user' => { '_aj_globalid' => 'gid://test/User/123' } }]
-    })
-    legacy = job(id: 'legacy', stack: ['legacy'], legacy: {
-      '__metadata__' => { 'current_attributes' => { 'controller' => 'users', 'action' => 'show' } }
+      'contexts' => {
+        'request' => [{ 'controller' => 'orders', 'action' => 'create', 'user' => { '_aj_globalid' => 'gid://test/User/123' }, '_aj_symbol_keys' => %w[controller action user] }],
+        'tenant' => [{ 'account_id' => 42 }]
+      },
+      'correlation_context' => 'request'
     })
 
     expect(render_partial('good_job/custom_job_details', job: current)).to include('orders#create')
-    expect(render_partial('good_job/custom_job_details', job: legacy)).to include('users#show')
+    expect(render_partial('good_job/custom_job_details', job: current)).to include('request', 'tenant', 'account_id')
+    expect(render_partial('good_job/custom_job_details', job: current)).not_to include('_aj_symbol_keys')
+    expect(render_partial('good_job/custom_job_details', job: current)).to include('_aj_globalid')
     expect(render_partial('good_job/custom_job_details', job: job(id: 'plain', stack: []))).to include('Unknown origin')
     positional = JobRecord.new(id: 'positional', active_job_id: 'positional', serialized_params: { 'arguments' => [42] })
     expect(render_partial('good_job/custom_job_details', job: positional)).to include('Unknown origin')
@@ -130,8 +130,8 @@ RSpec.describe 'GoodJob dashboard integration' do
   end
 
   it 'adds both cause columns to the table header', if: JobContext::Dashboard.table_supported? do
-    record = job(id: 'child', stack: %w[root parent child], payload: { 'version' => 1, 'attributes' => [{}] })
-    parent = job(id: 'parent-record', stack: [], payload: { 'version' => 1, 'attributes' => [{}] }).tap { |job| job.active_job_id = 'parent' }
+    record = job(id: 'child', stack: %w[root parent child], payload: { 'version' => 1, 'contexts' => { 'request' => [{}] }, 'correlation_context' => 'request' })
+    parent = job(id: 'parent-record', stack: [], payload: { 'version' => 1, 'contexts' => { 'request' => [{}] }, 'correlation_context' => 'request' }).tap { |job| job.active_job_id = 'parent' }
     allow(GoodJob::Job).to receive(:where).with(active_job_id: %w[parent root]).and_return([parent])
 
     html = render_partial('good_job/jobs/table', { jobs: [record], filter: Filter.new(1) },
@@ -142,10 +142,10 @@ RSpec.describe 'GoodJob dashboard integration' do
   end
 
   it 'batches shared direct and root ancestors once for the complete table', if: JobContext::Dashboard.table_supported? do
-    first = job(id: 'first', stack: %w[root parent first], payload: { 'version' => 1, 'attributes' => [{}] })
-    second = job(id: 'second', stack: %w[root parent second], payload: { 'version' => 1, 'attributes' => [{}] })
-    root = job(id: 'root-record', stack: [], payload: { 'version' => 1, 'attributes' => [{}] }).tap { |record| record.active_job_id = 'root' }
-    parent = job(id: 'parent-record', stack: [], payload: { 'version' => 1, 'attributes' => [{}] }).tap { |record| record.active_job_id = 'parent' }
+    first = job(id: 'first', stack: %w[root parent first], payload: { 'version' => 1, 'contexts' => { 'request' => [{}] }, 'correlation_context' => 'request' })
+    second = job(id: 'second', stack: %w[root parent second], payload: { 'version' => 1, 'contexts' => { 'request' => [{}] }, 'correlation_context' => 'request' })
+    root = job(id: 'root-record', stack: [], payload: { 'version' => 1, 'contexts' => { 'request' => [{}] }, 'correlation_context' => 'request' }).tap { |record| record.active_job_id = 'root' }
+    parent = job(id: 'parent-record', stack: [], payload: { 'version' => 1, 'contexts' => { 'request' => [{}] }, 'correlation_context' => 'request' }).tap { |record| record.active_job_id = 'parent' }
     expect(GoodJob::Job).to receive(:where).with(active_job_id: %w[parent root]).once.and_return([root, parent])
 
     html = render_partial('good_job/jobs/table', { jobs: [first, second], filter: Filter.new(2) }, paths: [JobContext::Dashboard.common_view_path, JobContext::Dashboard.table_view_path])
@@ -155,14 +155,14 @@ RSpec.describe 'GoodJob dashboard integration' do
   end
 
   it 'renders deleted ancestors as unavailable and preserves initial origin' do
-    initial = job(id: 'initial', stack: ['initial'], payload: { 'version' => 1, 'attributes' => [{ 'controller' => 'orders', 'action' => 'create' }] })
+    initial = job(id: 'initial', stack: ['initial'], payload: { 'version' => 1, 'contexts' => { 'request' => [{ 'controller' => 'orders', 'action' => 'create' }] }, 'correlation_context' => 'request' })
     expect(render_partial('good_job/custom_job_details', job: initial)).to include('orders#create')
     expect(render_partial('good_job/custom_job_details', job: initial)).not_to include('Unavailable job')
-    deleted = job(id: 'current', stack: %w[root current], payload: { 'version' => 1, 'attributes' => [{}] })
+    deleted = job(id: 'current', stack: %w[root current], payload: { 'version' => 1, 'contexts' => { 'request' => [{}] }, 'correlation_context' => 'request' })
     allow(GoodJob::Job).to receive(:where).with(active_job_id: ['root']).and_return([])
     expect(render_partial('good_job/custom_job_details', job: deleted)).to include('Unavailable job (root)')
-    existing = job(id: 'current', stack: %w[root current], payload: { 'version' => 1, 'attributes' => [{}] })
-    root = job(id: 'root-record', stack: [], payload: { 'version' => 1, 'attributes' => [{}] }).tap { |record| record.active_job_id = 'root' }
+    existing = job(id: 'current', stack: %w[root current], payload: { 'version' => 1, 'contexts' => { 'request' => [{}] }, 'correlation_context' => 'request' })
+    root = job(id: 'root-record', stack: [], payload: { 'version' => 1, 'contexts' => { 'request' => [{}] }, 'correlation_context' => 'request' }).tap { |record| record.active_job_id = 'root' }
     allow(GoodJob::Job).to receive(:where).with(active_job_id: ['root']).and_return([root])
     expect(render_partial('good_job/custom_job_details', job: existing)).to include('href="/good_job/jobs/root-record"')
   end
@@ -175,10 +175,10 @@ RSpec.describe 'GoodJob dashboard integration' do
         render_partial(partial, locals)
       end
 
-      [[], [42], [{ 'ordinary' => 'option' }], [{ '__metadata__' => {} }]].each do |arguments|
-        it "handles absent correlation metadata in #{arguments.inspect}" do
+      [{}, { 'contexts' => {}, 'correlation_context' => 'request' }].each do |payload|
+        it "handles absent correlation metadata in #{payload.inspect}" do
           record = job(id: 'plain', stack: [])
-          record.serialized_params = { 'arguments' => arguments }
+          record.serialized_params = { 'job_context' => payload.merge('version' => 1) }
           expect(GoodJob::Job).not_to receive(:where)
           html = render_job(partial, record)
           expect(html.scan('Unknown origin').size).to eq(2)
@@ -186,13 +186,13 @@ RSpec.describe 'GoodJob dashboard integration' do
       end
 
       it 'renders the initial origin twice without fetching its own job' do
-        record = job(id: 'initial', stack: ['initial'], payload: { 'version' => 1, 'attributes' => [{ 'controller' => 'orders', 'action' => 'create' }] })
+        record = job(id: 'initial', stack: ['initial'], payload: { 'version' => 1, 'contexts' => { 'request' => [{ 'controller' => 'orders', 'action' => 'create' }] }, 'correlation_context' => 'request' })
         expect(GoodJob::Job).not_to receive(:where)
         expect(render_job(partial, record).scan('orders#create').size).to eq(2)
       end
 
       it 'retains missing ancestor IDs without linking to deleted jobs' do
-        record = job(id: 'child', stack: %w[root parent child], payload: { 'version' => 1, 'attributes' => [{}] })
+        record = job(id: 'child', stack: %w[root parent child], payload: { 'version' => 1, 'contexts' => { 'request' => [{}] }, 'correlation_context' => 'request' })
         expect(GoodJob::Job).to receive(:where).with(active_job_id: %w[parent root]).once.and_return([])
         html = render_job(partial, record)
         expect(html).to include('Unavailable job (root)', 'Unavailable job (parent)')
