@@ -7,9 +7,9 @@ Gem::Specification.new do |spec|
   spec.version = JobContext::VERSION
   spec.authors = ['Nicolas J Jensen']
   spec.email = ['nicolasjensen9@gmail.com']
-  spec.summary = 'Named CurrentAttributes snapshots and ancestry for Active Job'
-  spec.description = 'Carries selected attributes from named CurrentAttributes classes through Active Job. ' \
-                     'Restores each context during execution and tracks one job ancestry stack.'
+  spec.summary = 'CurrentAttributes snapshots for Active Job'
+  spec.description = 'Carries selected CurrentAttributes through Active Job. ' \
+                     'Restores each context during execution and restores previous values afterward.'
   spec.homepage = 'https://github.com/NicolasJJensen/rails_job_context'
   spec.license = 'MIT'
   spec.required_ruby_version = '>= 3.1'

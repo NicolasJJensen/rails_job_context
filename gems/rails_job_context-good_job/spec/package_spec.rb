@@ -48,9 +48,9 @@ RSpec.describe 'Gem packages' do
           application.initialize!
           abort 'Details disabled' unless JobContext::Dashboard.config.details
           controller = GoodJob::ApplicationController.new
-          job = Struct.new(:serialized_params).new({})
+          job = Struct.new(:serialized_params).new({ 'job_context' => { 'version' => 1, 'contexts' => { 'TenantCurrent' => [{ 'account_id' => 42 }] } } })
           html = controller.render_to_string(partial: 'good_job/custom_job_details', locals: { job: job }, layout: false)
-          abort 'Missing packaged views' unless html.include?('Unknown origin')
+          abort 'Missing packaged views' unless html.include?('TenantCurrent')
           abort 'Loaded repository views' unless File.realpath(JobContext::Dashboard.common_view_path).start_with?(File.realpath(ARGV.fetch(0)) + File::SEPARATOR)
         end
       SCRIPT

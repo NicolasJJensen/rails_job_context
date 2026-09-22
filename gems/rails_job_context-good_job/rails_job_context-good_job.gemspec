@@ -7,8 +7,8 @@ Gem::Specification.new do |spec|
   spec.version = JobContext::Dashboard::VERSION
   spec.authors = ['Nicolas J Jensen']
   spec.email = ['nicolasjensen9@gmail.com']
-  spec.summary = 'Named job contexts and ancestry in the GoodJob dashboard'
-  spec.description = 'Adds context details and optional ancestry columns to GoodJob using rails_job_context.'
+  spec.summary = 'Saved job contexts in the GoodJob dashboard'
+  spec.description = 'Displays saved CurrentAttributes in GoodJob using rails_job_context.'
   spec.homepage = 'https://github.com/NicolasJJensen/rails_job_context'
   spec.license = 'MIT'
   spec.required_ruby_version = '>= 3.1'
@@ -19,7 +19,7 @@ Gem::Specification.new do |spec|
   }
   spec.files = Dir.chdir(__dir__) do
     Dir['lib/**/*.rb', 'app/views/**/*', 'integrations/**/*',
-        'README.md', 'CHANGELOG.md', 'LICENSE.txt', 'LICENSE.good_job.txt']
+        'README.md', 'CHANGELOG.md', 'LICENSE.txt']
       .select { |path| File.file?(path) }
   end
   spec.require_paths = ['lib']

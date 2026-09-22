@@ -25,6 +25,10 @@ module JobContext
       yield config
     end
 
+    def register_context(**options)
+      config.register_context(**options)
+    end
+
     def perform_all_later(*jobs)
       jobs.flatten.each { |job| job.capture_job_context! if job.is_a?(Job) }
       ActiveJob.perform_all_later(*jobs)

@@ -1,1 +1,4 @@
-<%= render 'job_context/details', job: job %>
+<%= render 'job_context/details', job: job if JobContext::Dashboard.config.details %>
+<% JobContext::Dashboard.details_partials.each do |partial| %>
+  <%= render partial, job: job %>
+<% end %>

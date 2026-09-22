@@ -1,8 +1,7 @@
 # rails_job_context
 
 Keep request context available in Active Job. Carry selected attributes, such as
-the current user or account, into background jobs and track which jobs enqueue
-other jobs.
+the current user or account, into background jobs.
 
 Once configured, jobs can read the context captured when they were enqueued:
 
@@ -18,7 +17,7 @@ Current.set(account_id: 42) { ReportJob.perform_later }
 
 - Select which attributes to carry from one or more `CurrentAttributes` classes.
 - Preserve the captured values across retries and transaction-deferred enqueueing.
-- Inspect parent and root jobs with the optional GoodJob dashboard integration.
+- Inspect saved attributes with the optional GoodJob dashboard integration.
 
 ## Installation
 
@@ -34,13 +33,12 @@ Then run `bundle install`.
 
 ## Setup
 
-Add the attributes you want to carry to your Current class, together with an
-attribute for job ancestry:
+Define the attributes you want to carry in your Current class:
 
 ```ruby
 # app/models/current.rb
 class Current < ActiveSupport::CurrentAttributes
-  attribute :account_id, :correlation_stack
+  attribute :account_id
 end
 ```
 
@@ -49,19 +47,16 @@ Register the class and select its attributes:
 ```ruby
 # config/initializers/rails_job_context.rb
 JobContext.configure do |config|
-  config.contexts = {
-    request: {
-      current_attributes: -> { Current },
-      attributes: %i[account_id]
-    }
+  config.contexts << {
+    current_attributes: -> { Current },
+    attributes: %i[account_id]
   }
-  config.correlation_context = :request
 end
 ```
 
-Here, `request` names this context. `correlation_context` selects the class whose
-`correlation_stack` holds the job ancestry. Use a callable so Rails can reload
-your Current class in development.
+Use a callable so Rails can reload your Current class in development. The gem
+identifies each context by its class name, so configuration order does not affect
+which class receives saved attributes.
 
 Include the concern in your application job:
 
@@ -97,23 +92,20 @@ and captures the caller's values if the job does not already have a snapshot.
 
 ## Configuration
 
-| Setting | Default | Description |
-| --- | --- | --- |
-| `contexts` | Required | Named definitions for the Current classes to capture |
-| `correlation_context` | Required | Name of the context that holds job ancestry |
-| `correlation_attribute` | `:correlation_stack` | Ancestry attribute declared on that context's class |
+`config.contexts` is an array of registrations. Append with `<<`, or assign the
+complete array with `config.contexts = [...]`.
 
-Each entry in `contexts` accepts:
+Each registration accepts:
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `current_attributes` | Required | A `CurrentAttributes` subclass or callable returning one |
+| `current_attributes` | Required | A named `CurrentAttributes` subclass or callable returning one |
 | `attributes` | `[]` | Attribute names to capture, or `:all` |
 | `except` | `[]` | Attribute names to exclude |
 
 ### Multiple Current classes
 
-Give each class a name and its own attribute selection:
+Register each class with its own attribute selection:
 
 ```ruby
 class TenantCurrent < ActiveSupport::CurrentAttributes
@@ -121,17 +113,16 @@ class TenantCurrent < ActiveSupport::CurrentAttributes
 end
 
 JobContext.configure do |config|
-  config.contexts = {
-    request: { current_attributes: -> { Current }, attributes: [] },
-    tenant: { current_attributes: -> { TenantCurrent }, attributes: %i[account_id] }
-  }
-  config.correlation_context = :request
+  config.contexts = [
+    { current_attributes: -> { Current }, attributes: %i[account_id] },
+    { current_attributes: -> { TenantCurrent }, attributes: %i[account_id] }
+  ]
 end
 ```
 
-Only the selected correlation owner needs an ancestry attribute. Each context
-must resolve to a different class. Names are matched independently of their order;
-use the same names and correlation owner in enqueueing and worker processes.
+Each registration must resolve to a different named class. Use the same classes
+in enqueueing and worker processes. The worker matches saved class names against
+its registrations; it does not load classes named by the payload.
 
 ### Selecting all attributes
 
@@ -139,40 +130,23 @@ For a Current class with a `request` attribute that should stay out of jobs:
 
 ```ruby
 JobContext.configure do |config|
-  config.contexts = {
-    request: {
+  config.contexts = [
+    {
       current_attributes: -> { Current },
       attributes: :all,
       except: %i[request]
     }
-  }
-  config.correlation_context = :request
+  ]
 end
 ```
 
-`:all` includes later-declared attributes and unset values. The owner's ancestry
-attribute is managed separately, even when the selection is empty or excludes it.
-Excluded attributes are not captured; they do not clear values already present
+`:all` includes later-declared attributes and unset values. Excluded attributes are not captured; they do not clear values already present
 in the worker.
 
 Values must be supported by Active Job's serializers. Unsupported values raise
 `ActiveJob::SerializationError` naming the context and attribute. Persisted models
 use GlobalID: the job reloads the record by identity rather than receiving a
 snapshot of its database columns.
-
-## Job ancestry
-
-`Current.correlation_stack` contains job IDs from the root job to the currently
-running job. For example, if `ImportJob` enqueues `ReportJob`:
-
-```text
-Inside ImportJob: [import_job_id]
-Inside ReportJob: [import_job_id, report_job_id]
-```
-
-The last ID is the current job, the preceding ID is its parent, and the first ID
-is the root. A retry retains the same stack. The caller's stack is restored after
-execution.
 
 ## Transactions, retries, and bulk enqueueing
 
@@ -213,15 +187,20 @@ deferral.
 
 ## GoodJob integration
 
-Add the companion gem to display saved contexts and job ancestry in GoodJob:
+Add the companion gem to display saved context attributes in GoodJob:
 
 ```ruby
 gem 'rails_job_context-good_job'
 ```
 
-Job details are enabled by default. The jobs table can also display parent and root
-causes. See the [GoodJob integration guide](gems/rails_job_context-good_job/README.md)
-for setup and configuration.
+Job details are enabled by default. See the
+[GoodJob integration guide](gems/rails_job_context-good_job/README.md) for setup.
+
+## Job ancestry
+
+For parent/root relationships and an ancestry chain, use the separate
+`rails_job_ancestry` gem. It uses this gem to propagate its own state and does not
+require ancestry attributes on your application's Current classes.
 
 ## Contributing
 

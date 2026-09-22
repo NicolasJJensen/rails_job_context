@@ -21,7 +21,6 @@ PENDING_CALLBACK_ARGUMENTS = DEFERRED_ENQUEUE_CALLBACKS ? [] : [[42]]
 RSpec.describe "JobContext with Active Record transactions" do
   class TestCurrent < ActiveSupport::CurrentAttributes
     attribute :user, :label, :metadata
-    attribute :correlation_stack, default: []
   end
 
   class TenantCurrent < ActiveSupport::CurrentAttributes
@@ -113,11 +112,10 @@ RSpec.describe "JobContext with Active Record transactions" do
 
   before do
     JobContext.configure do |config|
-      config.contexts = {
-        request: { current_attributes: -> { TestCurrent }, attributes: :all, except: [] },
-        tenant: { current_attributes: -> { TenantCurrent }, attributes: :all, except: [] }
-      }
-      config.correlation_context = :request
+      config.contexts = [
+        { current_attributes: -> { TestCurrent }, attributes: [:user, :label, :metadata] },
+        { current_attributes: -> { TenantCurrent }, attributes: [:account] }
+      ]
     end
     TestCurrent.reset
     ReportJob.callback_arguments = []
@@ -208,10 +206,10 @@ RSpec.describe "JobContext with Active Record transactions" do
     end
 
     context = ActiveJob::Arguments.deserialize(
-      @adapter.enqueued.first.fetch("job_context").fetch("contexts").fetch("request")
+      @adapter.enqueued.first.fetch("job_context").fetch("contexts").fetch("TestCurrent")
     ).first
     expect(context).to include(user: "alice", label: "before", metadata: { "team" => "blue" })
-    tenant = ActiveJob::Arguments.deserialize(@adapter.enqueued.first.fetch("job_context").fetch("contexts").fetch("tenant")).first
+    tenant = ActiveJob::Arguments.deserialize(@adapter.enqueued.first.fetch("job_context").fetch("contexts").fetch("TenantCurrent")).first
     expect(tenant).to eq(account: { "name" => "before" })
   end
 
@@ -235,7 +233,7 @@ RSpec.describe "JobContext with Active Record transactions" do
   private
 
   def context_user(payload)
-    attributes = payload.fetch("job_context").fetch("contexts").fetch("request")
+    attributes = payload.fetch("job_context").fetch("contexts").fetch("TestCurrent")
     ActiveJob::Arguments.deserialize(attributes).first.fetch(:user)
   end
 

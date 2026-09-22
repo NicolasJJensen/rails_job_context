@@ -7,8 +7,8 @@ example that reproduces the behavior.
 
 ## Repository layout
 
-- `gems/rails_job_context`: context capture, restoration, and job ancestry.
-- `gems/rails_job_context-good_job`: GoodJob dashboard integration and templates.
+- `gems/rails_job_context`: context capture and restoration.
+- `gems/rails_job_context-good_job`: saved context panels for GoodJob.
 - `spec/spec_helper.rb`: shared test setup.
 - `gemfiles`: dependency combinations used by the compatibility workflow.
 
@@ -21,7 +21,7 @@ bundle install
 bundle exec rake
 ```
 
-The transaction and dashboard request specs require PostgreSQL. They create and
+The transaction specs require PostgreSQL. They create and
 drop uniquely named scratch databases. By default, they connect to
 `postgres:///postgres` for database administration. The connected user must have
 permission to create databases.
@@ -37,8 +37,7 @@ database. Database cleanup runs after the examples.
 
 ## Compatibility tests
 
-The workflow covers Rails 7.2, 8.0, and 8.1, plus the supported GoodJob template
-boundaries. It also tests the core without GoodJob in the bundle:
+The workflow covers Rails 7.2, 8.0, and 8.1, plus supported GoodJob versions. It also tests the core without GoodJob in the bundle:
 
 ```sh
 BUNDLE_GEMFILE=gemfiles/core_rails_8_0.gemfile bundle install
@@ -57,7 +56,7 @@ companion's packaged views. Loading specs also check the default Bundler entrypo
 and ensure the core does not load Rails or GoodJob.
 
 See [Compatibility internals](docs/compatibility.md) before changing Active Job
-capture hooks or copied GoodJob templates.
+capture hooks or the GoodJob details hook.
 
 ## Documentation
 
@@ -81,5 +80,4 @@ matching core version.
 4. Inspect the artifacts in `pkg/` and verify their version and contents.
 5. Publish the core artifact first, then the companion artifact.
 
-Each package includes its own README and license. Preserve the GoodJob copyright
-notice when updating derived templates.
+Each package includes its own README and license.

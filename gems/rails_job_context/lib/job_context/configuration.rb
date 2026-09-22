@@ -1,32 +1,19 @@
 module JobContext
   class Configuration
-    Context = Struct.new(:name, :current_attributes, :attributes, :except, :resolved_class, keyword_init: true) do
-      def current_class
-        current = resolved_class || if current_attributes.is_a?(Class)
-          current_attributes
-        elsif current_attributes.respond_to?(:call)
-          current_attributes.call
-        end
-        unless current.is_a?(Class) && current < ActiveSupport::CurrentAttributes
-          raise ArgumentError, "Context #{name.inspect} must resolve to an ActiveSupport::CurrentAttributes class"
-        end
-        current
-      end
-
-      def selected_names(current = current_class, correlation_attribute: nil)
-        declared = current.defaults.keys.map(&:to_sym)
-        unless attributes == :all || attributes.is_a?(Array)
-          raise ArgumentError, "Context #{name.inspect} attributes must be :all or an array"
-        end
+    Context = Struct.new(:name, :current_class, :attributes, :except, keyword_init: true) do
+      def selected_names
+        declared = current_class.defaults.keys.map(&:to_sym)
         names = if attributes == :all
           declared
-        else
+        elsif attributes.is_a?(Array)
           attributes.map { |attribute| normalize_attribute(attribute) }
+        else
+          raise ArgumentError, "Context #{name.inspect} attributes must be :all or an array"
         end
         unknown = names - declared
         raise ArgumentError, "Unknown attributes for context #{name.inspect}: #{unknown.join(', ')}" unless unknown.empty?
 
-        names - Array(except).map { |attribute| normalize_attribute(attribute) } - Array(correlation_attribute).map { |attribute| normalize_attribute(attribute) }
+        names - Array(except).map { |attribute| normalize_attribute(attribute) }
       end
 
       private
@@ -38,77 +25,88 @@ module JobContext
       end
     end
 
-    attr_reader :contexts, :correlation_context, :correlation_attribute
+    attr_reader :contexts
 
     def initialize
-      @contexts = {}
-      @correlation_context = nil
-      @correlation_attribute = :correlation_stack
+      @contexts = []
+      @registered_contexts = []
     end
 
     def contexts=(value)
-      unless value.is_a?(Hash) && !value.empty?
-        raise ArgumentError, 'contexts must be a non-empty hash'
-      end
-      normalized = {}
-      value.each do |key, options|
-        name = normalize_name(key)
-        raise ArgumentError, "Duplicate context name #{name.inspect}" if normalized.key?(name)
-        raise ArgumentError, "Context #{name.inspect} must be configured with a hash" unless options.is_a?(Hash)
-        normalized[name] = Context.new(
-          name: name,
-          current_attributes: options[:current_attributes] || options['current_attributes'],
-          attributes: options.key?(:attributes) ? options[:attributes] : options.fetch('attributes', []),
-          except: options.key?(:except) ? options[:except] : options.fetch('except', [])
-        )
-      end
-      @contexts = normalized
+      raise ArgumentError, 'contexts must be an array' unless value.is_a?(Array)
+
+      @contexts = value.map { |definition| normalize_definition(definition) }
     end
 
-    def correlation_context=(value)
-      @correlation_context = normalize_name(value)
-    end
+    def register_context(current_attributes:, attributes: [], except: [])
+      definition = normalize_definition(
+        current_attributes: current_attributes,
+        attributes: attributes,
+        except: except
+      )
+      existing = @registered_contexts.find { |entry| entry == definition }
+      return existing if existing
 
-    def correlation_attribute=(value)
-      unless value.respond_to?(:to_sym)
-        raise ArgumentError, 'correlation_attribute must be a name'
-      end
-      @correlation_attribute = value.to_sym
+      @registered_contexts << definition
+      definition
     end
 
     def resolved_contexts
-      resolved = validate_contexts!
-      @contexts.transform_values { |context| context.dup.tap { |copy| copy.resolved_class = resolved.fetch(context.name) } }
-    end
-
-    private
-
-    def validate_contexts!
-      owner = @correlation_context
-      unless owner && @contexts.key?(owner)
-        raise ArgumentError, 'correlation_context must name a configured context'
+      resolved = []
+      @contexts.each do |definition|
+        definition = normalize_definition(definition)
+        current = resolve_current(definition[:current_attributes])
+        name = current.name
+        candidate = Context.new(name: name, current_class: current, attributes: definition[:attributes], except: definition[:except])
+        existing = resolved.find { |context| context.name == name }
+        if existing
+          raise ArgumentError, "Duplicate context registration for #{name}"
+        end
+        resolved << candidate
       end
-      raise ArgumentError, 'Each context must configure current_attributes' if @contexts.values.any? { |context| context.current_attributes.nil? }
-
-      resolved = @contexts.transform_values(&:current_class)
-      raise ArgumentError, 'Each context must resolve to a distinct CurrentAttributes class' if resolved.values.uniq.length != resolved.length
-
-      correlation = @correlation_attribute.to_sym
-      owner_current = resolved.fetch(owner)
-      unless owner_current.defaults.key?(correlation)
-        raise ArgumentError, "Declare Current attribute #{correlation} for correlation_context #{owner.inspect}"
-      end
-      @contexts.each do |name, context|
-        owner_attribute = name == owner ? correlation : nil
-        context.selected_names(resolved.fetch(name), correlation_attribute: owner_attribute)
+      @registered_contexts.each do |definition|
+        current = resolve_current(definition[:current_attributes])
+        name = current.name
+        candidate = Context.new(name: name, current_class: current, attributes: definition[:attributes], except: definition[:except])
+        existing = resolved.find { |context| context.name == name }
+        if existing
+          raise ArgumentError, "Conflicting context registration for #{name}" unless equivalent_context?(existing, candidate)
+          next
+        end
+        resolved << candidate
       end
       resolved
     end
 
-    def normalize_name(value)
-      name = value.to_s
-      raise ArgumentError, "Invalid context name #{value.inspect}" unless name.match?(/\A[a-z][a-z0-9_]*\z/i)
-      name
+    private
+
+    def normalize_definition(definition)
+      raise ArgumentError, 'Context must be configured with a hash' unless definition.is_a?(Hash)
+
+      current_attributes = definition[:current_attributes] || definition['current_attributes']
+      raise ArgumentError, 'Context must configure current_attributes' if current_attributes.nil?
+
+      attributes = definition.key?(:attributes) ? definition[:attributes] : definition.fetch('attributes', [])
+      except = definition.key?(:except) ? definition[:except] : definition.fetch('except', [])
+      { current_attributes: current_attributes, attributes: attributes, except: except }
+    end
+
+    def resolve_current(value)
+      current = if value.is_a?(Class)
+        value
+      elsif value.respond_to?(:call)
+        value.call
+      end
+      unless current.is_a?(Class) && current < ActiveSupport::CurrentAttributes
+        raise ArgumentError, 'Context must resolve to an ActiveSupport::CurrentAttributes class'
+      end
+      raise ArgumentError, 'Context CurrentAttributes classes must have a stable name' if current.name.nil? || current.name.empty?
+
+      current
+    end
+
+    def equivalent_context?(left, right)
+      left.attributes == right.attributes && left.except == right.except
     end
   end
 end
