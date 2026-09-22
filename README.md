@@ -1,195 +1,242 @@
 # rails_job_context
 
-Carry selected `ActiveSupport::CurrentAttributes` through Active Job, with one
-ancestry stack shared across named contexts. Ruby 3.1+, Active Job 7.2 through 8.x.
+Keep request context available in Active Job. Carry selected attributes, such as
+the current user or account, into background jobs and track which jobs enqueue
+other jobs.
 
-This repository publishes two gems:
-
-| Gem | Purpose | Runtime dependencies |
-| --- | --- | --- |
-| `rails_job_context` | Context snapshots, restoration, and job ancestry | Active Job, Active Support |
-| `rails_job_context-good_job` | Context and ancestry in the GoodJob dashboard | Core gem, Railties, GoodJob 3.99 through 4.x |
-
-The core package contains no GoodJob integration or templates.
-
-## Application setup
+Once configured, jobs can read the context captured when they were enqueued:
 
 ```ruby
-# Gemfile
+class ReportJob < ApplicationJob
+  def perform
+    Rails.logger.info("Account: #{Current.account_id}") # Account: 42
+  end
+end
+
+Current.set(account_id: 42) { ReportJob.perform_later }
+```
+
+- Select which attributes to carry from one or more `CurrentAttributes` classes.
+- Preserve the captured values across retries and transaction-deferred enqueueing.
+- Inspect parent and root jobs with the optional GoodJob dashboard integration.
+
+## Installation
+
+Requires Ruby 3.1 or later and Active Job / Active Support 7.2 through 8.x.
+
+Add to your application's Gemfile:
+
+```ruby
 gem 'rails_job_context'
+```
 
-# app/models/request_current.rb
-class RequestCurrent < ActiveSupport::CurrentAttributes
-  attribute :user, :controller, :action, :request, :correlation_stack
+Then run `bundle install`.
+
+## Setup
+
+Add the attributes you want to carry to your Current class, together with an
+attribute for job ancestry:
+
+```ruby
+# app/models/current.rb
+class Current < ActiveSupport::CurrentAttributes
+  attribute :account_id, :correlation_stack
 end
+```
 
-# app/models/tenant_current.rb
-class TenantCurrent < ActiveSupport::CurrentAttributes
-  attribute :account
-end
+Register the class and select its attributes:
 
+```ruby
 # config/initializers/rails_job_context.rb
 JobContext.configure do |config|
   config.contexts = {
     request: {
-      current_attributes: -> { RequestCurrent },
-      attributes: %i[user controller action]
-    },
-    tenant: {
-      current_attributes: -> { TenantCurrent },
-      attributes: %i[account]
+      current_attributes: -> { Current },
+      attributes: %i[account_id]
     }
   }
   config.correlation_context = :request
 end
+```
 
+Here, `request` names this context. `correlation_context` selects the class whose
+`correlation_stack` holds the job ancestry. Use a callable so Rails can reload
+your Current class in development.
+
+Include the concern in your application job:
+
+```ruby
 # app/jobs/application_job.rb
 class ApplicationJob < ActiveJob::Base
   include JobContext::Job
 end
 ```
 
-One context is enough; add more when your application uses separate Current
-classes. Context names identify the entries in the payload and do not depend on
-configuration order. Each entry accepts a CurrentAttributes subclass or a callable
-returning one. Use callables for classes Rails reloads in development.
+## Usage
 
-`contexts` and `correlation_context` are required. Only the correlation owner must
-declare `correlation_stack`. Set `config.correlation_attribute` to use another
-attribute on that owner. The stack is independent of selected attributes and is
-never duplicated across contexts.
-
-Each context has its own selection and exclusions:
+Enqueue jobs with the usual Active Job methods:
 
 ```ruby
-config.contexts = {
-  request: {
-    current_attributes: -> { RequestCurrent },
-    attributes: :all,
-    except: %i[request]
+class ReportJob < ApplicationJob
+  def perform
+    Rails.logger.info("Account: #{Current.account_id}")
+  end
+end
+
+Current.set(account_id: 42) do
+  ReportJob.perform_later
+end
+```
+
+The job logs `Account: 42`, even though the caller's `Current.set` block has ended.
+Selected values are available during execution, and the worker's previous values
+are restored afterward, including when the job raises an exception.
+
+Positional and keyword arguments work as usual. `perform_now` also restores context
+and captures the caller's values if the job does not already have a snapshot.
+
+## Configuration
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `contexts` | Required | Named definitions for the Current classes to capture |
+| `correlation_context` | Required | Name of the context that holds job ancestry |
+| `correlation_attribute` | `:correlation_stack` | Ancestry attribute declared on that context's class |
+
+Each entry in `contexts` accepts:
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `current_attributes` | Required | A `CurrentAttributes` subclass or callable returning one |
+| `attributes` | `[]` | Attribute names to capture, or `:all` |
+| `except` | `[]` | Attribute names to exclude |
+
+### Multiple Current classes
+
+Give each class a name and its own attribute selection:
+
+```ruby
+class TenantCurrent < ActiveSupport::CurrentAttributes
+  attribute :account_id
+end
+
+JobContext.configure do |config|
+  config.contexts = {
+    request: { current_attributes: -> { Current }, attributes: [] },
+    tenant: { current_attributes: -> { TenantCurrent }, attributes: %i[account_id] }
   }
-}
-config.correlation_context = :request
+  config.correlation_context = :request
+end
 ```
 
-The default selection is empty. `:all` includes later-declared and unset
-attributes. Exclusions still apply, and the owner's correlation attribute is
-handled separately. Unsupported values raise `ActiveJob::SerializationError`
-with the context and attribute name. Active Job serializers and GlobalID handle
-supported values, including persisted models. GlobalID stores record identity,
-not a snapshot of database columns.
+Only the selected correlation owner needs an ancestry attribute. Each context
+must resolve to a different class. Names are matched independently of their order;
+use the same names and correlation owner in enqueueing and worker processes.
 
-The gem defines the top-level `JobContext` module. A conflicting class with that
-name causes a clear error when the gem loads.
+### Selecting all attributes
 
-## Enqueueing and execution
-
-Use normal Active Job calls; arguments and keyword arguments remain unchanged:
+For a Current class with a `request` attribute that should stay out of jobs:
 
 ```ruby
-ReportJob.perform_later(42, format: 'csv')
-ReportJob.set(wait: 5.minutes).perform_later(42)
+JobContext.configure do |config|
+  config.contexts = {
+    request: {
+      current_attributes: -> { Current },
+      attributes: :all,
+      except: %i[request]
+    }
+  }
+  config.correlation_context = :request
+end
 ```
 
-The namespaced `job_context` payload contains a format version, a map of serialized
-named contexts, the correlation owner's name, and one ancestry stack. The stack
-includes this job's ID. A child job appends its own ID. Repeated serialization and
-retries reuse the first snapshot, including detached nested strings and collections.
+`:all` includes later-declared attributes and unset values. The owner's ancestry
+attribute is managed separately, even when the selection is empty or excludes it.
+Excluded attributes are not captured; they do not clear values already present
+in the worker.
 
-During execution, nested `Current.set` blocks restore every configured context.
-Previous values return even when execution raises. Only selected attributes are
-set; exclusions do not clear values already present in the execution environment.
-Direct `perform_now` captures the caller's context when no snapshot exists.
+Values must be supported by Active Job's serializers. Unsupported values raise
+`ActiveJob::SerializationError` naming the context and attribute. Persisted models
+use GlobalID: the job reloads the record by identity rather than receiving a
+snapshot of its database columns.
 
-This is an unreleased format with no legacy metadata reader. Configure the same
-context names and correlation owner in enqueueing and worker processes.
+## Job ancestry
 
-## Transactions and Rails compatibility
+`Current.correlation_stack` contains job IDs from the root job to the currently
+running job. For example, if `ImportJob` enqueues `ReportJob`:
 
-Snapshots are captured before Rails defers enqueueing until transaction commit:
+```text
+Inside ImportJob: [import_job_id]
+Inside ReportJob: [import_job_id, report_job_id]
+```
+
+The last ID is the current job, the preceding ID is its parent, and the first ID
+is the root. A retry retains the same stack. The caller's stack is restored after
+execution.
+
+## Transactions, retries, and bulk enqueueing
+
+When Rails defers a job until transaction commit, the gem captures context before
+that delay:
 
 ```ruby
 class ReportJob < ApplicationJob
   self.enqueue_after_transaction_commit = true
+
+  def perform
+    Rails.logger.info("Account: #{Current.account_id}")
+  end
 end
 
 ApplicationRecord.transaction do
-  RequestCurrent.set(user: alice) do
-    ReportJob.perform_later(42)
-  end
+  Current.set(account_id: 42) { ReportJob.perform_later }
 end
 ```
 
-The job retains Alice even though the surrounding `RequestCurrent.set` ends
-before commit. Rolling back prevents enqueueing. Rails and the queue adapter own
-transaction deferral; the gem does not enable it globally.
+The job receives account ID `42`. A rollback prevents enqueueing when transaction
+deferral is enabled. Rails and the adapter control deferral; this gem does not
+enable it globally. On Rails 8.1, deferred enqueue callbacks run after capture,
+so their changes do not replace the saved context.
 
-The capture hooks depend on private Active Job methods:
+Retries and repeated serialization reuse the first snapshot. Later changes to
+captured strings, arrays, or hashes do not alter it.
 
-- Rails 7.2 and 8.0: `raw_enqueue`, after enqueue callbacks enter and before deferral.
-- Rails 8.1: `_raw_enqueue` for immediate jobs, after callbacks enter.
-- Rails 8.1 with deferral: `raw_enqueue`, before Rails defers callbacks and enqueueing.
-  Changes made by those deferred callbacks do not replace the saved snapshot.
-
-Compatibility tests cover callback timing and real PostgreSQL transactions.
-Framework upgrades require these checks because the hooks are private.
-
-For bulk enqueueing, use:
+Use the wrapper for bulk enqueueing:
 
 ```ruby
-JobContext.perform_all_later(ReportJob.new(1), ReportJob.new(2))
+JobContext.perform_all_later(ReportJob.new, ReportJob.new)
 ```
 
-This captures participating jobs before delegating to `ActiveJob.perform_all_later`.
-Per-job enqueue callbacks do not run, and the wrapper does not add transaction
-deferral to bulk enqueueing.
+It captures context before delegating to `ActiveJob.perform_all_later`. Bulk jobs
+do not run per-job enqueue callbacks, and the wrapper does not add transaction
+deferral.
 
-## Optional GoodJob dashboard
+## GoodJob integration
 
-Add the companion gem. No `require:` option is needed:
+Add the companion gem to display saved contexts and job ancestry in GoodJob:
 
 ```ruby
-# Gemfile
 gem 'rails_job_context-good_job'
-
-# config/initializers/rails_job_context_good_job.rb
-JobContext::Dashboard.configure do |config|
-  config.details = true
-  config.table = false
-end
 ```
 
-The companion depends on the core and loads its Rails engine during boot. Details
-are enabled by default; replacing the jobs table is opt-in. See the
-[companion README](gems/rails_job_context-good_job/README.md) for template
-compatibility and application overrides.
+Job details are enabled by default. The jobs table can also display parent and root
+causes. See the [GoodJob integration guide](gems/rails_job_context-good_job/README.md)
+for setup and configuration.
 
-## Development
+## Contributing
+
+Bug reports and pull requests are welcome on
+[GitHub](https://github.com/NicolasJJensen/rails_job_context/issues).
+From a repository checkout, install dependencies and run the tests:
 
 ```sh
 bundle install
 bundle exec rake
-bundle exec rake build
 ```
 
-Both packages use the same version initially. `rake build` builds each gemspec into
-`pkg/`. Publish both artifacts for a coordinated release, with the core first.
-The companion declares the matching core version as its dependency.
-
-Run the core without GoodJob in the bundle:
-
-```sh
-BUNDLE_GEMFILE=gemfiles/core_rails_8_0.gemfile bundle install
-BUNDLE_GEMFILE=gemfiles/core_rails_8_0.gemfile bundle exec rspec gems/rails_job_context/spec
-```
-
-The compatibility matrix tests Rails 7.2, 8.0, and 8.1, plus GoodJob template
-boundaries. PostgreSQL specs create and drop a uniquely named scratch database.
-They use `postgres:///postgres` as the administrative connection by default.
-Set `JOB_CONTEXT_PG_URL` to another administrative URL if needed. The database
-user must be able to create databases. No browser is required.
+The transaction tests require PostgreSQL. See [CONTRIBUTING.md](CONTRIBUTING.md)
+for database setup, compatibility testing, and release instructions.
 
 ## License
 
-Both gems use the [MIT License](LICENSE.txt). The companion also includes
-GoodJob's copyright notice for its derived table templates.
+Available under the [MIT License](LICENSE.txt).

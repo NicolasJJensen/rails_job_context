@@ -1,69 +1,65 @@
 # rails_job_context-good_job
 
-Show named job contexts and direct/root job ancestry in GoodJob. This companion
-gem includes the core `rails_job_context` dependency, Rails engine, dashboard
-queries, and GoodJob templates.
+See the context and ancestry behind each background job. Display saved attributes
+and links to parent and root jobs in your existing GoodJob dashboard.
 
-## Setup
+## Installation
+
+The companion requires Ruby 3.1 or newer, Rails 7.2 through 8.x, and GoodJob
+`>= 3.99, < 5`. Your application must already use and mount GoodJob's dashboard.
+
+Add the gem to your Gemfile:
 
 ```ruby
-# Gemfile
 gem 'rails_job_context-good_job'
-
-# config/initializers/rails_job_context_good_job.rb
-JobContext::Dashboard.configure do |config|
-  config.details = true
-  config.table = false
-end
 ```
 
-Bundler loads the integration automatically. Configure the core contexts and
-include `JobContext::Job` in your application job as described in the
-[repository README](https://github.com/NicolasJJensen/rails_job_context).
-Mount and secure GoodJob's dashboard using GoodJob's application setup.
+Configure the core gem and include `JobContext::Job` as described in the root
+project's [setup guide](https://github.com/NicolasJJensen/rails_job_context#setup).
+Run `bundle install` and restart the application. The companion loads during Rails boot and adds its dashboard views automatically.
 
-Details default to enabled. The details partial uses GoodJob's documented
-`good_job/custom_job_details` extension point. It groups saved attributes by
-context and shows the immediate parent and root job. Initial jobs use the
-correlation owner's controller/action attributes as their origin.
+Details are enabled by default. The default table remains GoodJob's table, so you
+can install the companion without adding dashboard configuration.
 
-If your application already supplies the details hook, render the companion's
-partial inside your existing template:
+## Dashboard details
+
+The direct cause is the parent job. The root cause is the first job in the chain. It links to
+those GoodJob records when they still exist. For an initial job, it shows the
+correlation owner's controller and action, such as `orders#create`.
+
+The panel also groups the saved attributes by context name. Each group shows the
+serialized values saved by the core gem. Dashboard rendering
+reads those values without resolving GlobalIDs or instantiating serialized objects.
+
+If your application already defines GoodJob's custom details partial, keep that
+partial and render the companion partial inside it:
 
 ```erb
 <%= render 'job_context/details', job: job %>
 ```
 
-Application templates retain precedence. Set dashboard options during application
-boot and restart to change them. The integration reinstalls view paths on Rails
-reload without adding duplicates.
+Place the host partial at `app/views/good_job/_custom_job_details.html.erb`.
+Application views take precedence over the companion views.
 
 ## Jobs table
 
-Set `config.table = true` to show ancestry in the jobs table. This replaces the
-complete internal GoodJob table, so the gem ships templates for specific series:
+Enable the additional table columns:
 
-| GoodJob range | Template directory |
-| --- | --- |
-| `>= 3.99, < 4` | `integrations/good_job/views/v3` |
-| `>= 4.0, < 4.13.1` | `integrations/good_job/views/v4_0` |
-| `>= 4.13.1, < 4.17` | `integrations/good_job/views/v4_13` |
-| `>= 4.17, < 4.18` | `integrations/good_job/views/v4_17` |
-| `>= 4.18, < 5` | `integrations/good_job/views/v4_18` |
+```ruby
+# config/initializers/rails_job_context_good_job.rb
+JobContext::Dashboard.configure do |config|
+  config.table = true
+end
+```
 
-GoodJob 4.13.1 changed row actions to forms. Version 4.17 changed row selection
-controllers, and 4.18 introduced the `job_action_states` helper. The gem selects a
-template by the installed GoodJob version. Upgrades require compatibility tests
-and review of upstream template changes.
+The table adds direct-cause and root-cause columns. It uses the same links and
+origin labels as the details panel. Missing context displays `Unknown origin`.
+Deleted ancestors display `Unavailable job (ID)`.
 
-The companion's dependency range is `good_job >= 3.99, < 5`, including when only
-details are enabled. Bundler rejects incompatible combinations. Disabling table
-replacement does not expand the companion's supported GoodJob range.
-
-Missing context displays `Unknown origin`; deleted ancestors display
-`Unavailable job (ID)`. The table fetches ancestors in one query per render.
-Dashboard rendering reads serialized context without resolving GlobalIDs or
-instantiating custom serialized objects.
+The table replacement supports GoodJob `>= 3.99, < 5`. The integration selects a
+matching GoodJob template for each supported release series. See the
+[compatibility notes](https://github.com/NicolasJJensen/rails_job_context/blob/main/docs/compatibility.md)
+for upgrade considerations. Set dashboard options during application boot.
 
 ## License
 
