@@ -175,15 +175,14 @@ so their changes do not replace the saved context.
 Retries and repeated serialization reuse the first snapshot. Later changes to
 captured strings, arrays, or hashes do not alter it.
 
-Use the wrapper for bulk enqueueing:
+Use Rails for bulk enqueueing:
 
 ```ruby
-JobContext.perform_all_later(ReportJob.new, ReportJob.new)
+ActiveJob.perform_all_later(ReportJob.new, ReportJob.new)
 ```
 
-It captures context before delegating to `ActiveJob.perform_all_later`. Bulk jobs
-do not run per-job enqueue callbacks, and the wrapper does not add transaction
-deferral.
+Bulk enqueueing captures context when the adapter serializes each job. See
+[Limitations](#limitations) for capture timing and transaction behavior.
 
 ## GoodJob integration
 
@@ -201,6 +200,17 @@ Job details are enabled by default. See the
 For parent/root relationships and an ancestry chain, use the separate
 `rails_job_ancestry` gem. It uses this gem to propagate its own state and does not
 require ancestry attributes on your application's Current classes.
+
+## Limitations
+
+Rails bulk enqueueing bypasses per-job enqueue callbacks and transaction deferral,
+including `enqueue_after_transaction_commit`. The adapter determines whether bulk
+jobs participate in a database transaction or survive a rollback.
+
+For jobs without a saved snapshot, bulk enqueueing captures Current values when
+the adapter serializes each job. If an adapter postpones serialization until after
+Current changes or resets, the job can capture different values. This is an
+adapter-dependent limitation, not a known failure with a specific supported adapter.
 
 ## Contributing
 

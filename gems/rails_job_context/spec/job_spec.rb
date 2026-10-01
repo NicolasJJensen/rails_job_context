@@ -196,10 +196,10 @@ RSpec.describe JobContext::Job do
     expect(JobContextCurrent.account_id).to eq(7)
   end
 
-  it 'captures one caller snapshot for bulk enqueue' do
+  it 'captures context when the bulk adapter serializes each job' do
     JobContextCurrent.account_id = 42
     jobs = [JobContextTestJob.new, JobContextTestJob.new]
-    JobContext.perform_all_later(jobs)
+    ActiveJob.perform_all_later(jobs)
     expect(adapter.payloads.size).to eq(2)
     snapshots = adapter.payloads.map { |payload| payload['job_context']['contexts']['JobContextCurrent'] }
     expect(snapshots).to eq([snapshots.first, snapshots.first])

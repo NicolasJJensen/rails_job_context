@@ -63,6 +63,17 @@ transactions and bulk enqueueing.
 For dashboard views, add the optional
 [GoodJob companion](https://github.com/NicolasJJensen/rails_job_context/tree/main/gems/rails_job_context-good_job).
 
+## Limitations
+
+Rails bulk enqueueing bypasses per-job enqueue callbacks and transaction deferral,
+including `enqueue_after_transaction_commit`. The adapter determines whether bulk
+jobs participate in a database transaction or survive a rollback.
+
+For jobs without a saved snapshot, bulk enqueueing captures Current values when
+the adapter serializes each job. If an adapter postpones serialization until after
+Current changes or resets, the job can capture different values. This is an
+adapter-dependent limitation, not a known failure with a specific supported adapter.
+
 ## Contributing
 
 See the [contribution guide](https://github.com/NicolasJJensen/rails_job_context/blob/main/CONTRIBUTING.md)

@@ -32,7 +32,7 @@ RSpec.describe 'Gem packages' do
         require 'rails_job_context'
         abort 'Core loaded Rails' if defined?(Rails)
         abort 'Core loaded GoodJob' if defined?(GoodJob)
-        abort 'Loaded repository core' unless File.realpath(JobContext.method(:perform_all_later).source_location.first).start_with?(File.realpath(ARGV.fetch(0)) + File::SEPARATOR)
+        abort 'Loaded repository core' unless File.realpath(JobContext.method(:register_context).source_location.first).start_with?(File.realpath(ARGV.fetch(0)) + File::SEPARATOR)
         require 'rails_job_context-good_job'
         require 'action_controller/railtie'
         require 'active_job/railtie'
