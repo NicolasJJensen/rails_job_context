@@ -80,3 +80,23 @@ jobs:
           bundle install --jobs 4 --retry 3
       - run: bundle exec rspec ${{ matrix.specs }}
       - run: bundle exec rake build
+
+  backends:
+    name: Backends / Rails ${{ matrix.rails }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rails: ['7.2', '8.0', '8.1']
+    env:
+      BUNDLE_GEMFILE: gemfiles/backends.gemfile
+      BACKEND_RAILS_VERSION: '~> ${{ matrix.rails }}.0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+      - name: Install Redis for isolated integration tests
+        run: sudo apt-get update && sudo apt-get install -y redis-server
+      - run: bundle install --jobs 4 --retry 3
+      - run: bundle exec rspec spec/integration/backends_spec.rb

@@ -58,6 +58,27 @@ and ensure the core does not load Rails or GoodJob.
 See [Compatibility internals](docs/compatibility.md) before changing Active Job
 capture hooks or the GoodJob details hook.
 
+## Backend integration tests
+
+Install `redis-server` and make it available on `PATH`. The suite starts its own
+Redis processes on temporary ports and creates SQLite databases in temporary
+directories. It does not use or clear an existing Redis database.
+
+```sh
+BUNDLE_GEMFILE=gemfiles/backends.gemfile bundle install
+BUNDLE_GEMFILE=gemfiles/backends.gemfile bundle exec rspec spec/integration/backends_spec.rb
+```
+
+The default bundle targets Rails 8.0. Set `BACKEND_RAILS_VERSION='~> 7.2.0'` or
+`BACKEND_RAILS_VERSION='~> 8.1.0'` for both commands to test another Rails series.
+CI runs all three. These tests are separate from the default suite because they
+need backend gems and Redis. No backend dependency is added to the core gem.
+
+Each backend runs in a separate Ruby subprocess. Jobs pass through the adapter's
+persistent storage before its worker code executes them synchronously. The tests
+use Solid Queue claims, Sidekiq's processor, Resque's reserved jobs, and Delayed
+Job's worker. Backend upgrades can require updates to these worker interfaces.
+
 ## Documentation
 
 The root README is the main usage guide. Keep the core package README focused on

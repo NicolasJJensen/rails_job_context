@@ -1,0 +1,16 @@
+source 'https://rubygems.org'
+gemspec path: '../gems/rails_job_context'
+rails_version = ENV.fetch('BACKEND_RAILS_VERSION', '~> 8.0.0')
+gem 'railties', rails_version
+gem 'activerecord', rails_version
+# Rails 8.0's JSON encoder passes options removed in JSON 3.
+gem 'json', '< 3'
+gem 'solid_queue', '~> 1.4.0'
+gem 'sidekiq', '~> 8.0.2'
+gem 'resque', '~> 2.7.0'
+gem 'resque-scheduler', '~> 4.11'
+gem 'delayed_job_active_record', '~> 4.1'
+gem 'sqlite3', '~> 2.5'
+gem 'rspec-core', '~> 3.13'
+gem 'rspec-expectations', '~> 3.13'
+gem 'rspec-mocks', '~> 3.13'

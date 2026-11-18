@@ -184,6 +184,39 @@ ActiveJob.perform_all_later(ReportJob.new, ReportJob.new)
 Bulk enqueueing captures context when the adapter serializes each job. See
 [Limitations](#limitations) for capture timing and transaction behavior.
 
+## Supported backends
+
+The core depends on Active Job, not a particular queue backend. Use your backend
+through Active Job and include `JobContext::Job` in your application job:
+
+```ruby
+config.active_job.queue_adapter = :solid_queue # or :sidekiq, :resque, :delayed_job
+```
+
+The backend integration suite covers these versions on Ruby 3.3 with Rails 7.2,
+8.0, and 8.1:
+
+| Backend | Verified version |
+| --- | --- |
+| Solid Queue | 1.4.0 |
+| Sidekiq | 8.0.10 |
+| Resque | 2.7.0, with resque-scheduler 4.11.0 for scheduled jobs and retries |
+| Delayed Job | delayed_job_active_record 4.1.11 with delayed_job 4.2.0 |
+
+Tests use real Redis or SQLite storage and invoke each backend's worker execution
+path. They verify multiple Current classes, mutable snapshots, normal and bulk
+jobs, scheduled jobs, child jobs, Active Job retries and discards, transaction
+commit and rollback, and context cleanup. They do not start production worker
+daemons or test backend-native retry policies.
+
+GoodJob also has dedicated compatibility coverage. The optional
+`rails_job_context-good_job` package provides its dashboard integration.
+
+Other Active Job adapters may work, but are not covered by this backend suite.
+Native jobs that bypass Active Job, such as Sidekiq workers using `perform_async`,
+do not receive context from this gem. See [Limitations](#limitations) for bulk
+transaction behavior.
+
 ## GoodJob integration
 
 Add the companion gem to display saved context attributes in GoodJob:
